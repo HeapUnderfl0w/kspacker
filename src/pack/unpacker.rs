@@ -89,16 +89,18 @@ pub struct PackedFile {
 
 impl PackedFile {
     pub fn exists(&self) -> bool {
-        helpers::custom_preset_dir().join(format!("{}.json", self.metadata.name)).exists()
+        helpers::custom_preset_dir()
+            .join(format!("{}.json", self.metadata.name))
+            .exists()
     }
 
     pub fn metadata(&self) -> &PackMetaData { &self.metadata }
 
     pub fn conflicts(&self) -> &[MetaEntry] { &self.conflicts }
 
-    pub fn unpack(self) -> Result<(), UnpackError> {
+    pub fn unpack(&self) -> Result<(), UnpackError> {
         let mut zipf = zip::read::ZipArchive::new(
-            File::open(self.path).map_err(|reason| UnpackError::PackIOError { reason })?,
+            File::open(&self.path).map_err(|reason| UnpackError::PackIOError { reason })?,
         )
         .map_err(|reason| UnpackError::ZipIOError { reason })?;
 
@@ -110,7 +112,7 @@ impl PackedFile {
             other => UnpackError::ZipIOError { reason: other },
         })?;
 
-        let mut out_preset = File::create(helpers::custom_preset_dir().join(self.metadata.name))
+        let mut out_preset = File::create(helpers::custom_preset_dir().join(&self.metadata.name))
             .map_err(|reason| UnpackError::PackIOError { reason })?;
         std::io::copy(&mut preset, &mut out_preset)
             .map_err(|reason| UnpackError::PackIOError { reason })?;

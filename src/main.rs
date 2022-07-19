@@ -46,6 +46,8 @@ struct App {
     current_ks_version: Option<Version>,
     current_tab:        ActionTab,
 
+    status_message: Option<Message>,
+
     known_presets: Vec<String>,
 
     import: ImportState,
@@ -68,12 +70,18 @@ struct ImportState {
     path: String,
     pack: Option<PackedFile>,
 
-    error_confirmed: bool
+    error_confirmed: bool,
 }
 
 #[derive(Default)]
 struct ExportState {
     current_preset_selection: usize,
+}
+
+#[derive(Debug, Clone)]
+enum Message {
+    Success { message: String },
+    Error { message: String },
 }
 
 macro_rules! format_error {
@@ -96,6 +104,7 @@ impl App {
             current_error:      None,
             current_ks_version: None,
             current_tab:        ActionTab::Import,
+            status_message:     None,
             known_presets:      Vec::new(),
             persisted:          pers_state,
         }
@@ -107,6 +116,27 @@ impl eframe::App for App {
         _frame.set_window_title("Keysight Preset Packer");
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Keysight Preset Packer - by HeapUnderflow");
+
+            if let Some(message) = self.status_message.clone() {
+                ui.vertical_centered(|ui| {
+                    match message {
+                        Message::Success { message: m } => {
+                            ui.label(RichText::new("Success!").color(Color32::GREEN).size(32.0));
+                            ui.label(&*m);
+                        },
+                        Message::Error { message: m } => {
+                            ui.label(RichText::new("Error!").color(Color32::RED).size(32.0));
+                            ui.label(&*m);
+                        },
+                    }
+
+                    if ui.button("Dismiss").clicked() {
+                        self.status_message = None;
+                    }
+                });
+
+                return;
+            }
 
             ui.horizontal(|ui| {
                 ui.label("Keysight Path:");
@@ -142,32 +172,12 @@ impl eframe::App for App {
             ));
 
             if let Some(error) = &self.current_error {
-                
                 ui.group(|ui| {
                     ui.label(RichText::new(error).color(Color32::RED));
                     ui.allocate_space(egui::Vec2::new(ui.available_width(), 0.0));
                 });
             }
 
-            // if ui.button("doit").clicked() {
-            //     let packer =
-            //         pack::packer::Packer::new(r"G:\lib\steam\steamapps\common\Keysight\", "Ori");
-            //     let collected = packer.collect(false);
-            //     let collected = collected.unwrap();
-            //     collected
-            //         .pack(
-            //             "test.kspreset",
-            //             pack::packer::ExtraMeta {
-            //                 rename:             None,
-            //                 author:             String::from("Example Author"),
-            //                 description:        String::new(),
-            //                 version:            0,
-            //                 current_ks_version: 1500,
-            //             },
-            //         )
-            //         .unwrap();
-            // }
-            
             ui.separator();
 
             ui.horizontal(|ui| {
@@ -215,12 +225,10 @@ impl App {
                     self.import.path = path.display().to_string();
                 }
             }
-            if pick_ui.button("Set").clicked()
-                && self.import.path.len() > 0
-            {
+            if pick_ui.button("Set").clicked() && self.import.path.len() > 0 {
                 match pack::unpacker::Unpacker::new(&self.import.path).load() {
                     Ok(preset) => self.import.pack = Some(preset),
-                    Err(why) => self.current_error = Some(format_error!(why))
+                    Err(why) => self.current_error = Some(format_error!(why)),
                 }
             }
         });
@@ -231,31 +239,40 @@ impl App {
             ui.separator();
 
             ui.label("Loaded Preset:");
-            egui::Grid::new("kspack-import-preset-info").num_columns(2).striped(true).show(ui, |ui| {
-                ui.label("Name");
-                ui.label(&meta.name);
-                ui.end_row();
+            egui::Grid::new("kspack-import-preset-info")
+                .num_columns(2)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.label("Name");
+                    ui.label(&meta.name);
+                    ui.end_row();
 
-                ui.label("Version");
-                ui.label(format!("{:#X}", meta.preset_version));
-                ui.end_row();
-            
-                ui.label("Keysight Version");
-                ui.label(RichText::new(format!("{:#X}", meta.target_version)).color(if meta.target_version != self.current_ks_version.unwrap() { Color32::RED } else { Color32::BLACK }));
-                ui.end_row();
+                    ui.label("Version");
+                    ui.label(format!("{:#X}", meta.preset_version));
+                    ui.end_row();
 
-                ui.label("Author");
-                ui.label(&meta.author);
-                ui.end_row();
+                    ui.label("Keysight Version");
+                    ui.label(RichText::new(format!("{:#X}", meta.target_version)).color(
+                        if meta.target_version != self.current_ks_version.unwrap() {
+                            Color32::RED
+                        } else {
+                            Color32::BLACK
+                        },
+                    ));
+                    ui.end_row();
 
-                ui.label("Description");
-                ui.label(&meta.description);
-                ui.end_row();
+                    ui.label("Author");
+                    ui.label(&meta.author);
+                    ui.end_row();
 
-                ui.label("Packed on");
-                ui.label(&meta.packed.format("%F %T").to_string());
-                ui.end_row();
-            });
+                    ui.label("Description");
+                    ui.label(&meta.description);
+                    ui.end_row();
+
+                    ui.label("Packed on");
+                    ui.label(&meta.packed.format("%F %T").to_string());
+                    ui.end_row();
+                });
 
             let exists = preset.exists();
             let has_errors = preset.conflicts().len() > 0 || exists;
@@ -265,40 +282,75 @@ impl App {
             }
 
             if exists {
-                ui.label(RichText::new("Warning! A preset already exists under this name.\n    Please make sure that you really want to overwrite it.").color(Color32::RED));
+                ui.label(
+                    RichText::new(
+                        "Warning! A preset already exists under this name.\n    Please make sure \
+                         that you really want to overwrite it.",
+                    )
+                    .color(Color32::RED),
+                );
             }
 
             if preset.conflicts().len() > 0 {
-                ui.label(RichText::new("Warning! This preset has conflicting assets.\n    Please make sure that you want to overwrite these assets!").color(Color32::RED));
+                ui.label(
+                    RichText::new(
+                        "Warning! This preset has conflicting assets.\n    Please make sure that \
+                         you want to overwrite these assets!",
+                    )
+                    .color(Color32::RED),
+                );
                 ui.label("Conflicting Assets");
-                egui::Grid::new("kspack-import-conflict-list").num_columns(3).striped(true).show(ui, |ui| {
-                    ui.label(RichText::new("File").strong().underline());
-                    ui.label(RichText::new("Type").strong().underline());
-                    ui.label(RichText::new("Hash").strong().underline());
-                    ui.end_row();
-
-                    for entry in preset.conflicts() {
-                        ui.label(format!("{}.{}", entry.name, entry.extension));
-                        ui.label(format!("{:?}", entry.texture_type));
-                        ui.label(format!("{}...", entry.hash.chars().take(16).collect::<String>()));
+                egui::Grid::new("kspack-import-conflict-list")
+                    .num_columns(3)
+                    .striped(true)
+                    .show(ui, |ui| {
+                        ui.label(RichText::new("File").strong().underline());
+                        ui.label(RichText::new("Type").strong().underline());
+                        ui.label(RichText::new("Hash").strong().underline());
                         ui.end_row();
-                    }
-                });
+
+                        for entry in preset.conflicts() {
+                            ui.label(format!("{}.{}", entry.name, entry.extension));
+                            ui.label(format!("{:?}", entry.texture_type));
+                            ui.label(format!(
+                                "{}...",
+                                entry.hash.chars().take(16).collect::<String>()
+                            ));
+                            ui.end_row();
+                        }
+                    });
             }
 
             ui.separator();
 
             if has_errors {
-                ui.checkbox(&mut self.import.error_confirmed, "I have understood above conflicts and aknowledge that i want to overwrite all specified files.");
+                ui.checkbox(
+                    &mut self.import.error_confirmed,
+                    "I have understood above conflicts and aknowledge that i want to overwrite \
+                     all specified files.",
+                );
             }
 
-            if ui.add_enabled(!has_errors || (has_errors && self.import.error_confirmed) , egui::Button::new("Import")).clicked() {
-                info!("import");
+            if ui
+                .add_enabled(
+                    !has_errors || (has_errors && self.import.error_confirmed),
+                    egui::Button::new("Import"),
+                )
+                .clicked()
+            {
+                if let Err(why) = preset.unpack() {
+                    self.current_error = Some(format_error!(why));
+                    self.import.error_confirmed = false;
+                } else {
+                    let name = meta.name.clone();
+                    self.import = ImportState::default();
+                    self.status_message = Some(Message::Success {
+                        message: format!("Successfully imported preset {}", name),
+                    });
+                }
             }
         }
     }
 
-    fn export_ui(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Export Preset");
-    }
+    fn export_ui(&mut self, ui: &mut egui::Ui) { ui.heading("Export Preset"); }
 }
