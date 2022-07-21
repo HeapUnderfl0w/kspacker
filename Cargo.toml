@@ -3,6 +3,9 @@ name = "kspacker"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+proton-steam-comptime = []
+
 [dependencies]
 anyhow = { version = "1.0.58", features = ["backtrace"] }
 blake3 = { version = "1.3.1", features = ["digest"] }
