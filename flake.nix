@@ -3,23 +3,26 @@
 
   inputs = {
     nixpkgs.url      = "github:nixos/nixpkgs/nixos-unstable";
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    naersk.url = "github:nix-community/naersk";
+    naersk = { url = "github:nix-community/naersk"; inputs.nixpkgs.follows = "nixpkgs"; };
     flake-utils.url  = "github:numtide/flake-utils";
+
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, flake-utils, naersk, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs = { self, nixpkgs, fenix, flake-utils, naersk, ... }:
+    flake-utils.lib.eachSystem (flake-utils.lib.defaultSystems) (system:
       let
-        overlays = [ (import rust-overlay) ];
+        overlays = [ fenix.overlay ];
         pkgs = import nixpkgs {
           inherit system overlays;
         };
 
-        toolchain = pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
-          extensions = [ "clippy" "rustfmt" "rust-src" "rust-analyzer-preview" ];
-          targets = [ "x86_64-pc-windows-gnu"];
-        });
+        toolchain = (pkgs.fenix.toolchainOf { channel = "nightly"; sha256 = "sha256-o0S6q8Wi8rrPQpm6nFvmlSkqCnRGi3YSLvrKUqTvKPM="; }).withComponents [
+          "cargo" "rustc" "clippy" "rustfmt" "rust-src"
+        ];
 
         naersk-lib = naersk.lib."${system}".override {
           rustc = toolchain;
@@ -64,7 +67,7 @@
           defaultApp = apps.kspacker;
 
           devShell = pkgs.mkShell {
-            buildInputs = _buildInputs;
+            buildInputs = _buildInputs ++ [ pkgs.rust-analyzer-nightly ];
             nativeBuildInputs = _nativeBuildInputs;
 
             PROTON_PATH_OVR = proton_ovr;
