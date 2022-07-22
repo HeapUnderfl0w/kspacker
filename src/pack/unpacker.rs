@@ -95,18 +95,17 @@ impl PackedFile {
 		.map_err(|reason| UnpackError::ZipIOError { reason })?;
 
 		debug!("unpacking preset.json");
-		let mut preset = zipf.by_name("preset.json").map_err(|reason| match reason {
-			ZipError::FileNotFound => UnpackError::AssetNotFound { name: "preset.json".to_owned() },
-			other => UnpackError::ZipIOError { reason: other },
-		})?;
+		{
+			let mut preset = zipf.by_name("preset.json").map_err(|reason| match reason {
+				ZipError::FileNotFound => UnpackError::AssetNotFound { name: "preset.json".to_owned() },
+				other => UnpackError::ZipIOError { reason: other },
+			})?;
 
-		let mut out_preset = File::create(helpers::custom_preset_dir().join(&self.metadata.name))
-			.map_err(|reason| UnpackError::PackIOError { reason })?;
-		std::io::copy(&mut preset, &mut out_preset)
-			.map_err(|reason| UnpackError::PackIOError { reason })?;
-
-		drop(preset);
-		drop(out_preset);
+			let mut out_preset = File::create(helpers::custom_preset_dir().join(format!("{}.json", self.metadata.name)))
+				.map_err(|reason| UnpackError::PackIOError { reason })?;
+			std::io::copy(&mut preset, &mut out_preset)
+				.map_err(|reason| UnpackError::PackIOError { reason })?;
+		}
 
 		for asset in &self.metadata.assets {
 			debug!(?asset.hash, "unpacking asset");
