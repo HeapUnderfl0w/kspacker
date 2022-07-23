@@ -37,6 +37,7 @@ fn main() {
 	let egui_opts = eframe::NativeOptions {
 		resizable: false,
 		initial_window_size: Some(eframe::emath::vec2(600.0, 800.0)),
+		vsync: true,
 		..Default::default()
 	};
 
@@ -164,11 +165,11 @@ impl eframe::App for App {
 					ui.heading("P and Set");
 					ui.horizontal_wrapped(|ui| {
 						ui.label("Around this tool you will see several text-inputs with a");
-						let _ = ui.small_button("P");
+						let _ = ui.small_button("Pick");
 						ui.label("and a");
 						let _ = ui.small_button("Set");
 						ui.label("next to it. These usually indicate a input for a path. You can use the");
-						let _ = ui.small_button("P");
+						let _ = ui.small_button("Pick");
 						ui.label("to open a file and/or folder picker. After you have made your input you will");
 						ui.label(RichText::new("need").strong());
 						ui.label("to confirm your input with the");
@@ -220,7 +221,7 @@ impl eframe::App for App {
 			ui.horizontal(|ui| {
 				ui.label("Keysight Path:");
 				ui.text_edit_singleline(&mut self.persisted.keysight_path);
-				if ui.button("P").clicked() {
+				if ui.button("Pick").clicked() {
 					if let Some(path) = rfd::FileDialog::new().pick_folder() {
 						self.persisted.keysight_path = path.display().to_string();
 					}
@@ -301,7 +302,7 @@ impl App {
 		ui.horizontal(|pick_ui| {
 			pick_ui.label("Import from:");
 			pick_ui.text_edit_singleline(&mut self.import.path);
-			if pick_ui.button("P").clicked() {
+			if pick_ui.button("Pick").clicked() {
 				if let Some(path) =
 					rfd::FileDialog::new().add_filter(PRESET_EXT_NAME, &[PRESET_EXT]).pick_file()
 				{
