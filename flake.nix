@@ -10,10 +10,15 @@
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    fuckery = {
+      url = "gitlab:K900/rust-cross-windows";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, fenix, flake-utils, naersk, ... }:
-    flake-utils.lib.eachSystem (flake-utils.lib.defaultSystems) (system:
+  outputs = { self, nixpkgs, fenix, flake-utils, naersk, ... }@inputs:
+    flake-utils.lib.eachSystem (flake-utils.lib.defaultSystems ++ [flake-utils.lib.system.x86_64-windows]) (system:
       let
         overlays = [ fenix.overlay ];
         pkgs = import nixpkgs {
@@ -51,13 +56,29 @@
         proton_ovr = builtins.readFile ./proton-steam-comptime.txt;
       in
         rec {
-          packages.kspacker = naersk-lib.buildPackage {
-            pname = "kspacker";
-            root = ./.;
-            buildInputs = _buildInputs;
-            nativeBuildInputs = _nativeBuildInputs;
-            cargoBuildOptions = options: options ++ ["--features" "proton-steam-comptime"];
-            PROTON_PATH_OVR = proton_ovr;
+          packages = {
+            kspacker = naersk-lib.buildPackage {
+              pname = "kspacker";
+              root = ./.;
+              buildInputs = _buildInputs;
+              nativeBuildInputs = _nativeBuildInputs;
+            };
+            kspacker-dev = naersk-lib.buildPackage {
+              pname = "kspacker";
+              root = ./.;
+              buildInputs = _buildInputs;
+              nativeBuildInputs = _nativeBuildInputs;
+              release = false;
+              cargoBuildOptions = options: options ++ ["--features" "proton-steam-comptime"];
+              PROTON_PATH_OVR = proton_ovr;
+            };
+            kspacker-win = inputs.fuckery.lib.mkCrossPackage {
+              pname = "kspacker";
+              root = ./.;
+              buildInputs = with pkgs; [openssl pkgconfig];
+              nativeBuildInputs = [];
+            };
+
           };
           defaultPackage = packages.kspacker;
 
