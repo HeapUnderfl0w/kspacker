@@ -7,7 +7,7 @@ use std::{
 
 use chrono::Utc;
 
-use super::{helpers, ks_preset::Texturable, MetaEntry, PackMetaData, TextureType};
+use super::{helpers, ks_preset::Texturable, MetaEntry, PackMetaData, TextureType, Version};
 
 #[derive(Debug, thiserror::Error, miette::Diagnostic)]
 pub enum PackError {
@@ -59,17 +59,25 @@ pub enum PackError {
 		#[source]
 		reason: serde_json::Error,
 	},
+
+	#[error("wrong version")]
+	#[diagnostic(code(pack::meta::invalid_version))]
+	WrongVersion {
+		wanted: Version,
+		got: Version
+	},
 }
 
 #[derive(Debug)]
 pub struct Packer {
 	root:   PathBuf,
 	preset: String,
+	ksv: Version
 }
 
 impl Packer {
-	pub fn new(root: impl Into<PathBuf>, preset: impl Into<String>) -> Self {
-		Packer { root: root.into(), preset: preset.into() }
+	pub fn new(root: impl Into<PathBuf>, ksv: Version, preset: impl Into<String>) -> Self {
+		Packer { root: root.into(), ksv, preset: preset.into() }
 	}
 
 	#[instrument(skip(self))]
@@ -84,6 +92,23 @@ impl Packer {
 			warn!(preset_path=%preset_path.display(), "preset does not exist");
 			return Err(PackError::NotFound { name: self.preset.clone() });
 		}
+
+		let ks_version = {
+			#[derive(Debug, serde::Deserialize)]
+			struct KsVersionOnly {
+				#[serde(rename = "versionForUpdatePurposes")]
+				pub version_for_update_purposes: u32,
+			}
+
+			let f = File::open(&preset_path).map_err(|reason| PackError::Unreadable { reason })?;
+
+			serde_json::from_reader::<_, KsVersionOnly>(f).map_err(|reason| PackError::MalformedPreset { reason })
+		}?;
+
+		if ks_version.version_for_update_purposes != self.ksv {
+			return Err(PackError::WrongVersion { wanted: self.ksv, got: ks_version.version_for_update_purposes });
+		}
+
 		let loaded_preset: super::ks_preset::KeysightPresetElement = {
 			let f = File::open(&preset_path).map_err(|reason| PackError::Unreadable { reason })?;
 

@@ -49,6 +49,7 @@ struct App {
 	current_ks_version: Option<Version>,
 	current_tab:        ActionTab,
 	debug:              bool,
+	help: bool,
 
 	status_message: Option<Message>,
 
@@ -58,9 +59,16 @@ struct App {
 	export: ExportState,
 }
 
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 struct PersistedState {
 	keysight_path: String,
+	firstrun: bool,
+}
+
+impl Default for PersistedState {
+	fn default() -> Self {
+		Self { keysight_path: String::default(), firstrun: true }
+	}
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -103,11 +111,14 @@ macro_rules! format_error {
 
 impl App {
 	pub fn new(cc: &eframe::CreationContext) -> Self {
-		let pers_state = if let Some(storage) = cc.storage {
+		let mut pers_state = if let Some(storage) = cc.storage {
 			eframe::get_value(storage, APP_PERSIST_KEY).unwrap_or_default()
 		} else {
 			PersistedState::default()
 		};
+
+		let is_first_run = pers_state.firstrun;
+		pers_state.firstrun = false;
 
 		Self {
 			import:             ImportState::default(),
@@ -118,7 +129,8 @@ impl App {
 			status_message:     None,
 			known_presets:      vec![DEFAULT_EXPORT_KEY.to_string()],
 			persisted:          pers_state,
-			debug:              false,
+			debug:              std::env::var("KSPACKER_DEBUG").map(|v| v == "1").unwrap_or(false),
+			help:               is_first_run
 		}
 	}
 }
@@ -134,6 +146,51 @@ impl eframe::App for App {
 						pack::helpers::custom_preset_dir().display(),
 						pack::helpers::custom_asset_dir(false).display()
 					));
+				});
+			}
+
+			if self.help {
+				egui::Window::new("Help").collapsible(false).min_width(ui.available_width() * 0.8).resizable(false).show(ctx, |ui| {
+					ui.horizontal_wrapped(|ui| {
+						// trick from https://github.com/emilk/egui/blob/898f4804b7b998ffeb1ff9f457b935e1364d6827/egui_demo_lib/src/demo/misc_demo_window.rs#L205
+						let width = ui.fonts().glyph_width(&egui::TextStyle::Body.resolve(ui.style()), ' ');
+						ui.spacing_mut().item_spacing.x = width;
+
+						ui.label("Welcome to the ");
+						ui.label(RichText::new("Help Screen").underline());
+						ui.label(". This will give you some helpfull information on how and where things work.");
+					});
+					ui.separator();
+					ui.heading("P and Set");
+					ui.horizontal_wrapped(|ui| {
+						ui.label("Around this tool you will see several text-inputs with a");
+						let _ = ui.small_button("P");
+						ui.label("and a");
+						let _ = ui.small_button("Set");
+						ui.label("next to it. These usually indicate a input for a path. You can use the");
+						let _ = ui.small_button("P");
+						ui.label("to open a file and/or folder picker. After you have made your input you will");
+						ui.label(RichText::new("need").strong());
+						ui.label("to confirm your input with the");
+						let _ = ui.small_button("Set");
+						ui.label("Button");
+					});
+
+					ui.separator();
+					ui.heading("Keysight Path");
+					ui.horizontal_wrapped(|ui| {
+						ui.label("The keysight path is the full path to your Keysight installation directory. By default this will be");
+						ui.code(r"C:\Program Files (x86)\Steam\steamapps\common\Keysight");
+						ui.label("The correct directory will have only 2 subdirectories");
+						ui.code("Engine");
+						ui.label("and");
+						ui.code("Keysight");
+					});
+
+					ui.separator();
+					if ui.button("Close").clicked() {
+						self.help = false;
+					}
 				});
 			}
 
@@ -183,8 +240,8 @@ impl eframe::App for App {
 					}
 				};
 
-				if ui.button("DBG").clicked() {
-					self.debug = !self.debug;
+				if ui.button("Help").clicked() {
+					self.help = !self.help;
 				}
 
 				ui.allocate_space(egui::Vec2::new(ui.available_width(), 0.0));
@@ -195,9 +252,12 @@ impl eframe::App for App {
 				pack::helpers::maybe_format_version(self.current_ks_version)
 			));
 
-			if let Some(error) = &self.current_error {
+			if let Some(error) = self.current_error.clone() {
 				ui.group(|ui| {
 					ui.label(RichText::new(error).color(Color32::RED));
+					if ui.button("Clear Error").on_hover_text("This will clear the error messsage. If the error persists pleases check your path and presets").clicked() {
+						self.current_error = None;
+					}
 					ui.allocate_space(egui::Vec2::new(ui.available_width(), 0.0));
 				});
 			}
@@ -392,23 +452,26 @@ impl App {
 				)
 				.changed();
 
-			if cbc && self.export.current_preset_selection > 0 {
-				self.export.e_name =
-					self.known_presets[self.export.current_preset_selection].clone();
+			if cbc {
+				self.export.packable_preset = None;
 
-				let packer = pack::packer::Packer::new(
-					&self.persisted.keysight_path,
-					&self.known_presets[self.export.current_preset_selection],
-				);
+				if self.export.current_preset_selection > 0 {
+					self.export.e_name =
+						self.known_presets[self.export.current_preset_selection].clone();
 
-				match packer.collect(true) {
-					Err(why) => self.current_error = Some(format_error!(why)),
-					Ok(preset) => self.export.packable_preset = Some(preset),
+					let packer = pack::packer::Packer::new(
+						&self.persisted.keysight_path,
+						self.current_ks_version.unwrap(),
+						&self.known_presets[self.export.current_preset_selection],
+					);
+
+					match packer.collect(true) {
+						Err(why) => self.current_error = Some(format_error!(why)),
+						Ok(preset) => self.export.packable_preset = Some(preset),
+					}
 				}
 			}
 		});
-
-		if self.export.packable_preset.is_none() {}
 
 		if let Some(ppreset) = self.export.packable_preset.as_ref() {
 			ui.separator();
